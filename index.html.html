@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buon compleanno Elisa!</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; }
+  body {
+    color: #fff;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow: hidden;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #testo {
+    height: 16vh; min-height: 90px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-end;
+    text-align: center; padding: 0 12px 10px;
+  }
+  #titolo { font-size: clamp(12px, 2.6vw, 24px); line-height: 1.6; color: #ffd84a; }
+  #sotto  { font-size: clamp(8px, 1.5vw, 13px); line-height: 1.8; color: #fff; margin-top: 8px; min-height: 2em; }
+  .lampeggia { animation: lamp 1s steps(2) infinite; }
+  @keyframes lamp { 50% { opacity: .35; } }
+  canvas {
+    width: min(96vw, 96vh, 900px);
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #popup {
+    position: fixed; inset: 0;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.6);
+  }
+  #popup.aperto { display: flex; }
+  .finestra {
+    background: #000; border: 4px solid #fff;
+    box-shadow: 0 0 0 4px #000, 0 0 0 8px #b3122a;
+    padding: 28px 24px; max-width: 90vw; text-align: center;
+  }
+  .finestra p { font-size: clamp(10px, 2vw, 16px); line-height: 1.9; margin-bottom: 24px; }
+  button {
+    font-family: inherit; font-size: clamp(12px, 2vw, 16px);
+    color: #000; background: #ffd84a;
+    border: 4px solid #fff; padding: 12px 28px; cursor: pointer;
+  }
+  button:hover, button:focus { background: #fff; outline: none; }
+  #rigioca { display: none; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<div id="testo">
+  <div id="titolo"></div>
+  <div id="sotto"></div>
+</div>
+
+<canvas id="gioco" width="320" height="240"></canvas>
+
+<button id="rigioca">RIGIOCA</button>
+
+<div id="popup">
+  <div class="finestra">
+    <p>Hai ospiti,<br>vuoi fargli entrare?</p>
+    <button id="si">S&Igrave;</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  TESTI: puoi cambiarli qui
+// ============================================================
+const TESTI = {
+  inizio:      "ESPRIMI UN DESIDERIO...",
+  istruzioni:  "...e spegni le 22 candeline!",
+  scherzi: [
+    "Ops... se n'è riaccesa una!",
+    "Ancora?!",
+    "Soffia più forte!",
+    "Che candeline testarde...",
+    "Ok ok, questa era l'ultima!"
+  ],
+  auguri:      "AUGURI DI BUON COMPLEANNO",
+  nome:        "ELISA 22",
+  furto:       "EHI!! LA TORTA!!",
+  fine:        "...almeno ti ho lasciato una fetta!",
+};
+const NUM_CANDELINE = 22;
+const NUM_SCHERZI   = 5;   // quante volte si riaccende una candelina
+
+// ============================================================
+//  PREPARAZIONE
+// ============================================================
+const canvas = document.getElementById("gioco");
+const ctx = canvas.getContext("2d");
+const titolo = document.getElementById("titolo");
+const sotto  = document.getElementById("sotto");
+const popup  = document.getElementById("popup");
+
+function R(x, y, w, h, colore) {          // disegna un rettangolo "pixel"
+  ctx.fillStyle = colore;
+  ctx.fillRect(Math.round(x), Math.round(y), w, h);
+}
+function scrivi(grande, piccolo, lampeggia) {
+  titolo.textContent = grande;
+  sotto.textContent = piccolo || "";
+  sotto.className = lampeggia ? "lampeggia" : "";
+}
+
+// ---------- suoni 8-bit ----------
+let audio = null;
+function avviaAudio() {
+  if (!audio) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audio = new AC();
+  }
+  if (audio && audio.state === "suspended") audio.resume();
+}
+function bip(freq, durata, quando, tipo, volume) {
+  if (!audio) return;
+  const t = audio.currentTime + (quando || 0);
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = tipo || "square";
+  o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(volume || 0.06, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + durata);
+  o.connect(g); g.connect(audio.destination);
+  o.start(t); o.stop(t + durata + 0.02);
+}
+function suonoSoffio()   { bip(520, 0.08); bip(260, 0.12, 0.06); }
+function suonoRiaccesa() { bip(660, 0.07); bip(990, 0.12, 0.07); }
+function suonoBussata()  { bip(110, 0.08, 0, "triangle", 0.2); bip(110, 0.08, 0.18, "triangle", 0.2); bip(110, 0.08, 0.36, "triangle", 0.2); }
+function suonoPasso()    { bip(160, 0.04, 0, "square", 0.03); }
+function suonoAllarme()  { for (let i = 0; i < 6; i++) bip(i % 2 ? 440 : 660, 0.12, i * 0.12); }
+function tantiAuguri() {
+  const G4=392, A4=440, B4=494, C5=523, D5=587, E5=659, F5=698, G5=784;
+  const note = [
+    [G4,.75],[G4,.25],[A4,1],[G4,1],[C5,1],[B4,2],
+    [G4,.75],[G4,.25],[A4,1],[G4,1],[D5,1],[C5,2],
+    [G4,.75],[G4,.25],[G5,1],[E5,1],[C5,1],[B4,1],[A4,2],
+    [F5,.75],[F5,.25],[E5,1],[C5,1],[D5,1],[C5,2]
+  ];
+  let t = 0; const battuta = 0.32;
+  for (const [f, d] of note) { bip(f, d * battuta * 0.95, t, "square", 0.05); t += d * battuta; }
+}
+
+// ============================================================
+//  STATO DEL GIOCO
+// ============================================================
+const TORTA = { x: 50, w: 180, ySopra: 110, yLato: 130, yBase: 190 };
+const FETTA = { x: 176, w: 40 };   // pezzo di torta che si stacca
+
+const coloriCandele = ["#ff8fb8", "#fff3a6", "#9fd8ff", "#ffffff"];
+const candele = [];
+for (let i = 0; i < NUM_CANDELINE; i++) {
+  const dietro = i < NUM_CANDELINE / 2;
+  const n = dietro ? i : i - NUM_CANDELINE / 2;
+  const x = (dietro ? 60 : 68) + n * 15;
+  candele.push({
+    x: x,
+    y: dietro ? 118 : 128,              // base della candelina
+    colore: coloriCandele[i % coloriCandele.length],
+    accesa: true,
+    fumo: 0,
+    sullaFetta: x >= FETTA.x && x + 4 <= FETTA.x + FETTA.w
+  });
+}
+// le candeline dietro vanno disegnate prima di quelle davanti (già in ordine)
+
+let fase = "gioca";      // gioca -> spegniTutte -> fetta -> festa -> popup -> ospite -> fine
+let scherziFatti = 0;
+let tempo = 0;
+let fettaT = 0;          // 0..1 animazione della fetta
+let fettaDx = 0, fettaDy = 0;
+let tortaDx = 0, tortaDy = 0;
+let coriandoli = [];
+const ospite = { x: 340, stato: "fuori", t: 0, passo: 0, tPasso: 0 };
+
+function quanteAccese() { return candele.filter(c => c.accesa).length; }
+
+function spegni(c) {
+  c.accesa = false;
+  c.fumo = 1;
+  suonoSoffio();
+}
+
+// ============================================================
+//  CLICK SULLE CANDELINE
+// ============================================================
+canvas.addEventListener("pointerdown", function (e) {
+  avviaAudio();
+  if (fase !== "gioca") return;
+  const r = canvas.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * canvas.width / r.width;
+  const my = (e.clientY - r.top) * canvas.height / r.height;
+
+  // trova la candelina accesa più vicina al click
+  let scelta = null, migliore = Infinity;
+  for (const c of candele) {
+    if (!c.accesa) continue;
+    const dx = mx - (c.x + 2), dy = my - (c.y - 13);
+    if (Math.abs(dx) <= 8 && Math.abs(dy) <= 16) {
+      const d = dx * dx + dy * dy;
+      if (d <= migliore) { migliore = d; scelta = c; }
+    }
+  }
+  if (!scelta) return;
+
+  const acceseAdesso = quanteAccese();
+
+  spegni(scelta);
+
+  // spenta l'ultima: parte la fetta
+  if (quanteAccese() === 0) {
+    fase = "spegniTutte";
+    scrivi(TESTI.inizio, "");
+    setTimeout(iniziaFetta, 800);
+    return;
+  }
+
+  // ultime 5: ogni volta che ne spegne una, se ne riaccende un'altra (per 5 volte)
+  if (acceseAdesso <= 5 && scherziFatti < NUM_SCHERZI) {
+    const messaggio = TESTI.scherzi[scherziFatti % TESTI.scherzi.length];
+    scherziFatti++;
+    setTimeout(function () {
+      if (fase !== "gioca") return;
+      const spente = candele.filter(c => !c.accesa && c !== scelta);
+      const c = spente[Math.floor(Math.random() * spente.length)];
+      if (c) { c.accesa = true; c.fumo = 0; suonoRiaccesa(); }
+      scrivi(TESTI.inizio, messaggio);
+    }, 450);
+  } else {
+    scrivi(TESTI.inizio, "Candeline accese: " + (acceseAdesso - 1));
+  }
+});
+
+// ============================================================
+//  SEQUENZA FINALE
+// ============================================================
+function iniziaFetta() {
+  fase = "fetta";
+  fettaT = 0;
+  bip(330, 0.1); bip(440, 0.1, 0.1); bip(550, 0.15, 0.2);
+}
+function iniziaFesta() {
+  fase = "festa";
+  scrivi(TESTI.auguri, TESTI.nome);
+  tantiAuguri();
+  const colori = ["#ffd84a", "#ff8fb8", "#9fd8ff", "#b3122a", "#ffffff", "#8be28b"];
+  for (let i = 0; i < 70; i++) {
+    coriandoli.push({
+      x: Math.random() * 320, y: -Math.random() * 240,
+      v: 25 + Math.random() * 45, o: Math.random() * 6,
+      colore: colori[i % colori.length]
+    });
+  }
+  setTimeout(function () { fase = "popup"; popup.classList.add("aperto"); suonoBussata(); }, 9000);
+}
+document.getElementById("si").addEventListener("click", function () {
+  avviaAudio();
+  popup.classList.remove("aperto");
+  fase = "ospite";
+  ospite.stato = "entra";
+  ospite.x = 340;
+  scrivi(TESTI.auguri, "");
+});
+document.getElementById("rigioca").addEventListener("click", () => location.reload());
+
+// ============================================================
+//  AGGIORNAMENTO
+// ============================================================
+function aggiorna(dt) {
+  tempo += dt;
+  for (const c of candele) if (c.fumo > 0) c.fumo = Math.max(0, c.fumo - dt * 1.2);
+
+  if (fase === "fetta") {
+    fettaT = Math.min(1, fettaT + dt / 1.3);
+    const e = 1 - Math.pow(1 - fettaT, 3);
+    fettaDx = 70 * e;
+    fettaDy = -12 * Math.sin(Math.PI * fettaT) + 8 * e;
+    if (fettaT >= 1) iniziaFesta();
+  }
+
+  for (const k of coriandoli) {
+    k.y += k.v * dt;
+    if (k.y > 245 && (fase === "festa" || fase === "popup")) { k.y = -5; k.x = Math.random() * 320; }
+  }
+
+  if (fase === "ospite") {
+    const o = ospite;
+    o.t += dt;
+    if (o.stato === "entra" || o.stato === "scappa") {
+      o.tPasso += dt;
+      if (o.tPasso > (o.stato === "scappa" ? 0.09 : 0.16)) { o.tPasso = 0; o.passo = 1 - o.passo; suonoPasso(); }
+    }
+    if (o.stato === "entra") {
+      o.x -= 75 * dt;
+      if (o.x <= 116) { o.x = 116; o.stato = "aspetta"; o.t = 0; o.passo = 0; }
+    } else if (o.stato === "aspetta") {
+      if (o.t > 0.7) { o.stato = "solleva"; o.t = 0; bip(300, 0.1); bip(500, 0.15, 0.1); }
+    } else if (o.stato === "solleva") {
+      const p = Math.min(1, o.t / 0.5);
+      tortaDy = -42 * p;
+      if (p >= 1) { o.stato = "scappa"; o.t = 0; scrivi(TESTI.furto, ""); suonoAllarme(); }
+    } else if (o.stato === "scappa") {
+      o.x -= 150 * dt;
+      tortaDx = o.x - 116;
+      if (o.x < -170) {
+        o.stato = "via";
+        fase = "fine";
+        scrivi(TESTI.auguri, TESTI.fine);
+        document.getElementById("rigioca").style.display = "block";
+      }
+    }
+  }
+}
+
+// ============================================================
+//  DISEGNO
+// ============================================================
+const C = {
+  glassa: "#fff7ea", glassaLato: "#efe4d2", glassaOmbra: "#d2c5b0",
+  rosso: "#b3122a", rossoScuro: "#7d0d1f", rossoBuio: "#4a0812",
+  crema: "#fff7ea", piatto: "#9aa3b5", piattoOmbra: "#5d667a"
+};
+
+function disegnaTorta(ox, oy, conBuco) {
+  const T = TORTA;
+  // piatto
+  R(T.x - 10 + ox, T.yBase + oy, T.w + 20, 5, C.piatto);
+  R(T.x - 6 + ox, T.yBase + 5 + oy, T.w + 12, 3, C.piattoOmbra);
+  // lato della torta (glassa al formaggio)
+  R(T.x + ox, T.yLato + oy, T.w, T.yBase - T.yLato, C.glassaLato);
+  R(T.x + ox, T.yBase - 9 + oy, T.w, 9, C.glassaOmbra);
+  // decorazione rossa in basso
+  for (let x = T.x + 3; x < T.x + T.w - 3; x += 8) R(x + ox, T.yBase - 7 + oy, 4, 4, C.rosso);
+  // riga centrale (i due strati)
+  for (let x = T.x + 2; x < T.x + T.w - 2; x += 6) R(x + ox, 158 + oy, 3, 2, C.glassaOmbra);
+  // sopra della torta
+  R(T.x + ox, T.ySopra + oy, T.w, T.yLato - T.ySopra, C.glassa);
+  R(T.x + ox, T.ySopra + oy, T.w, 2, "#ffffff");
+  // colature di glassa
+  for (let i = 0; i < 14; i++) {
+    const h = 4 + (i * 7) % 9;
+    R(T.x + 4 + i * 13 + ox, T.yLato + oy, 6, h, C.glassa);
+    R(T.x + 5 + i * 13 + ox, T.yLato + h + oy, 4, 2, C.glassa);
+  }
+  // briciole red velvet sopra
+  for (let i = 0; i < 22; i++) {
+    R(T.x + 5 + (i * 37) % (T.w - 10) + ox, T.ySopra + 4 + (i * 11) % 14 + oy, 2, 2, C.rosso);
+  }
+  // angoli arrotondati
+  R(T.x + ox, T.ySopra + oy, 2, 2, "#000"); R(T.x + T.w - 2 + ox, T.ySopra + oy, 2, 2, "#000");
+  R(T.x + ox, T.yBase - 2 + oy, 2, 2, C.piatto); R(T.x + T.w - 2 + ox, T.yBase - 2 + oy, 2, 2, C.piatto);
+
+  // buco lasciato dalla fetta: si vede il rosso dentro
+  if (conBuco) {
+    const fx = FETTA.x + ox, fw = FETTA.w;
+    R(fx, T.ySopra + oy, fw, T.yLato - T.ySopra, C.rossoBuio);
+    R(fx, T.yLato + oy, fw, T.yBase - T.yLato, C.rossoScuro);
+    R(fx, T.yLato + oy, fw, 3, C.glassaOmbra);            // glassa sopra
+    R(fx, 157 + oy, fw, 5, C.glassaOmbra);                // crema tra i due strati
+    R(fx, T.yBase - 3 + oy, fw, 3, C.rossoBuio);
+    R(fx, T.ySopra + oy, 2, T.yBase - T.ySopra, C.glassaOmbra);
+    R(fx + fw - 2, T.ySopra + oy, 2, T.yBase - T.ySopra, C.glassaOmbra);
+  }
+}
+
+function disegnaFetta(dx, dy) {
+  const T = TORTA, x = FETTA.x + dx, w = FETTA.w;
+  // piattino
+  R(x - 6, T.yBase + dy, w + 12, 4, C.piatto);
+  R(x - 3, T.yBase + 4 + dy, w + 6, 2, C.piattoOmbra);
+  // sopra (glassa)
+  R(x, T.ySopra + dy, w, T.yLato - T.ySopra, C.glassa);
+  R(x, T.ySopra + dy, w, 2, "#ffffff");
+  // interno: due strati rossi con la crema in mezzo
+  R(x, T.yLato + dy, w, 4, C.crema);
+  R(x, T.yLato + 4 + dy, w, 24, C.rosso);
+  R(x, 158 + dy, w, 5, C.crema);
+  R(x, 163 + dy, w, 27, C.rosso);
+  // glassa sul bordo esterno
+  R(x + w - 5, T.yLato + dy, 5, T.yBase - T.yLato, C.glassaLato);
+  // puntini più scuri (la "mollica")
+  for (let i = 0; i < 16; i++) {
+    const px = x + 3 + (i * 13) % (w - 11);
+    const py = (i % 2 ? 137 : 166) + (i * 5) % 19 + dy;
+    R(px, py, 2, 2, C.rossoScuro);
+  }
+}
+
+function disegnaCandela(c) {
+  const ox = c.sullaFetta ? fettaDx : tortaDx;
+  const oy = c.sullaFetta ? fettaDy : tortaDy;
+  const x = c.x + ox, y = c.y + oy;
+  R(x, y - 16, 4, 16, c.colore);                 // corpo
+  R(x, y - 12, 4, 2, C.rosso); R(x, y - 6, 4, 2, C.rosso);   // righe
+  R(x + 1, y - 19, 2, 3, "#3a3a3a");             // stoppino
+  if (c.accesa) {
+    const f = Math.floor(tempo * 8 + c.x) % 2;   // la fiamma tremola
+    R(x, y - 24 - f, 4, 6 + f, "#ff9a1f");
+    R(x + 1, y - 26 - f, 2, 3, "#ff9a1f");
+    R(x + 1, y - 23, 2, 4, "#fff3a6");
+  } else if (c.fumo > 0) {
+    const s = (1 - c.fumo) * 14;
+    R(x + 1 + Math.sin(s) * 2, y - 22 - s, 2, 2, "#8a8a8a");
+    R(x + 1 - Math.sin(s) * 2, y - 26 - s, 2, 2, "#5a5a5a");
+  }
+}
+
+// ---------- l'ospite (16 x 24 pixel, ingrandito x3) ----------
+const PALETTE = {
+  h: "#262626", c: "#505050",       // capelli neri ricci (con riflessi)
+  s: "#a9714b", d: "#8a5a3a",       // pelle
+  k: "#150c08", m: "#5e2a1c",       // occhi, bocca
+  w: "#ffffff", r: "#b3122a",       // camicia, papillon
+  b: "#22222b", l: "#56566a",       // abito nero (con risvolti)
+  o: "#3d3d3d"                      // scarpe
+};
+const CORPO = [
+  "....hchhchhc....",
+  "...hchhchhchh...",
+  "..chhchhchhchh..",
+  "..hhchhchhchhc..",
+  "..hchsssssshch..",
+  "..hhsssssssshh..",
+  "..chskssssksch..",
+  "...ssssssssss...",
+  "...ssmssssmss...",
+  "....ssmmmmss....",
+  "......dssd......",
+  "...bbbwrrwbbb...",
+  "..bbbblwwlbbbb..",
+  ".bbbbblwwlbbbbb.",
+  ".bbbbbblwbbbbbb.",
+  ".bb.bbbbbbbb.bb.",
+  ".bb.bbbbbbbb.bb.",
+  ".ss.bbbbbbbb.ss.",
+  "....bbbbbbbb...."
+];
+const GAMBE = [
+  ["....bbb..bbb....", "....bbb..bbb....", "....bbb..bbb....", "....bbb..bbb....", "...oooo..oooo..."],
+  ["....bbb..bbb....", "...bbb....bbb...", "...bbb....bbb...", "..bbb......bbb..", ".oooo......oooo."]
+];
+function disegnaOspite() {
+  const o = ospite;
+  if (o.stato === "fuori" || o.stato === "via") return;
+  const S = 3, x = Math.round(o.x), yTop = 160 - (o.passo ? 2 : 0);
+  const porta = o.stato === "solleva" || o.stato === "scappa";   // braccia alzate
+  const righe = CORPO.concat(GAMBE[o.passo]);
+  for (let ry = 0; ry < righe.length; ry++) {
+    for (let rx = 0; rx < 16; rx++) {
+      const ch = righe[ry][rx];
+      if (ch === ".") continue;
+      if (porta && ry >= 15 && ry <= 17 && (rx < 3 || rx > 12)) continue;  // nasconde le braccia in basso
+      R(x + rx * S, yTop + ry * S, S, S, PALETTE[ch]);
+    }
+  }
+  if (porta) {
+    const su = 190 + tortaDy + 8;       // dove arrivano le mani (sotto il piatto)
+    R(x, su, 6, yTop + 45 - su, PALETTE.b);  R(x + 42, su, 6, yTop + 45 - su, PALETTE.b);
+    R(x, su, 6, 6, PALETTE.s);              R(x + 42, su, 6, 6, PALETTE.s);
+  }
+  if (o.stato === "aspetta") {          // punto esclamativo
+    R(x + 21, yTop - 22, 6, 12, "#ffd84a"); R(x + 21, yTop - 7, 6, 4, "#ffd84a");
+  }
+}
+
+function disegna() {
+  R(0, 0, 320, 240, "#000");
+  const fettaFuori = fase !== "gioca" && fase !== "spegniTutte";
+
+  for (const k of coriandoli) R(k.x + Math.sin(tempo * 3 + k.o) * 4, k.y, 3, 3, k.colore);
+
+  if (fase !== "fine") {
+    disegnaTorta(tortaDx, tortaDy, fettaFuori);
+    for (const c of candele) if (!c.sullaFetta) disegnaCandela(c);
+  }
+  if (fettaFuori) disegnaFetta(fettaDx, fettaDy);
+  for (const c of candele) if (c.sullaFetta) disegnaCandela(c);
+
+  disegnaOspite();
+}
+
+// ============================================================
+//  CICLO PRINCIPALE
+// ============================================================
+let ultimo = performance.now();
+function ciclo(adesso) {
+  const dt = Math.min(0.05, (adesso - ultimo) / 1000);
+  ultimo = adesso;
+  aggiorna(dt);
+  disegna();
+  requestAnimationFrame(ciclo);
+}
+
+scrivi(TESTI.inizio, "");
+setTimeout(function () { if (fase === "gioca" && quanteAccese() === NUM_CANDELINE) scrivi(TESTI.inizio, TESTI.istruzioni, true); }, 1800);
+requestAnimationFrame(ciclo);
+</script>
+</body>
+</html>
